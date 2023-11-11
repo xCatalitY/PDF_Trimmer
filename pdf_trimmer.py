@@ -2,46 +2,51 @@ import PyPDF2
 import re
 import os
 
-# To extract text from a PDF page
 def extract_text(page):
-    # Works fine for PDFs I tested with, yet it may fail for others
-    # See: https://stackoverflow.com/questions/34837707/how-to-extract-text-from-a-pdf-file
     text = page.extract_text()
-    return re.sub('[\n\r\s]+', '', text) if text else ''
+    return re.sub('[\n\r\s]+', ' ', text).strip()
 
-# Process each PDF file in the current directory
+def has_overlap(current_text, next_text, threshold=100):
+    end_current = current_text[-threshold:]
+    start_next = next_text[:threshold]
+    return end_current in start_next
+
+total_saved_pages = 0  # Initialize the total saved pages counter
+
+# Process all PDFs in the current directory
 for filename in os.listdir('.'):
     if filename.endswith('.pdf'):
         in_fpath = filename
         out_fpath = f"trimmed_{filename}"
 
-        # Initialize PDF reader & writer objects
         in_file = PyPDF2.PdfReader(in_fpath)
         out_file = PyPDF2.PdfWriter()
 
-        # Print the number of pages before processing
-        print(f"Processing '{in_fpath}'. Number of pages before processing: {len(in_file.pages)}")
+        original_page_count = len(in_file.pages)
+        print(f"Processing '{in_fpath}'. Number of pages before processing: {original_page_count}")
 
-        del_pages = []
+        last_text_segment = extract_text(in_file.pages[0])[-100:]
 
-        prev_pg_text = extract_text(in_file.pages[0])
-
-        for pgNo, page in enumerate(in_file.pages[1:], start=1):
-            pg_text = extract_text(page)
-            # If current page contains all text of previous page
-            if pg_text.startswith(prev_pg_text):
-                del_pages.append(pgNo - 1)  # Delete previous page
-            prev_pg_text = pg_text
-
-        # To delete pages, have to write a new PDF excluding those
         for pgNo, page in enumerate(in_file.pages):
-            if pgNo not in del_pages:
+            current_text = extract_text(page)
+
+            if pgNo + 1 < len(in_file.pages):
+                next_text = extract_text(in_file.pages[pgNo + 1])
+                if not has_overlap(last_text_segment, next_text):
+                    out_file.add_page(page)
+                last_text_segment = current_text[-100:]
+            else:
                 out_file.add_page(page)
 
-        # Print the number of pages after processing
-        print(f"Number of pages after processing: {len(out_file.pages)}")
+        processed_page_count = len(out_file.pages)
+        print(f"Number of pages after processing: {processed_page_count}")
 
         with open(out_fpath, 'wb') as f:
             out_file.write(f)
 
-        print(f"Finished processing '{in_fpath}'. Output saved as '{out_fpath}'.\n")
+        saved_pages = original_page_count - processed_page_count
+        total_saved_pages += saved_pages  # Update the total saved pages
+        print(f"Finished processing '{in_fpath}'. Output saved as '{out_fpath}'. Pages saved in this file: {saved_pages}\n")
+
+# Print the total number of pages saved across all files
+print(f"Total number of pages saved across all processed files: {total_saved_pages}")
